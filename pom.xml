@@ -27,6 +27,8 @@
         <b2-sdk.version>6.1.1</b2-sdk.version>
         <slf4j.version>2.0.9</slf4j.version>
         <junit.version>5.10.1</junit.version>
+        <!-- CHANGED: Use reliable Reed-Solomon library -->
+        <zxing.version>3.5.1</zxing.version>
     </properties>
 
     <dependencies>
@@ -64,10 +66,12 @@
         </dependency>
 
         <!-- Reed-Solomon Error Correction -->
+        <!-- CHANGED: Using ZXing library - reliable Reed-Solomon implementation -->
+        <!-- Used in production by Google, well-maintained, in Maven Central -->
         <dependency>
-            <groupId>com.backblaze.b2</groupId>
-            <artifactId>b2-sdk-core</artifactId>
-            <version>${b2-sdk.version}</version>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>${zxing.version}</version>
         </dependency>
 
         <!-- Logging -->
