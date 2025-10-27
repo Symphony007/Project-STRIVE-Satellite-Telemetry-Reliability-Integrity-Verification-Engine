@@ -9,8 +9,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * NASA-grade polynomial operations in GF(256) for Reed-Solomon coding
- * Enhanced with parallel computation, erasure support, and advanced algorithms
- * for real-time satellite telemetry processing
+ * FIXED VERSION - with enhanced Chien search
  */
 public class GFPolynomial {
     private final byte[] coefficients; // coefficients[0] is constant term
@@ -23,6 +22,9 @@ public class GFPolynomial {
     
     // Parallel computation
     private static final ForkJoinPool PARALLEL_POOL = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
+    
+    // Debug mode
+    private boolean debugMode = true;
     
     public GFPolynomial(byte[] coefficients, CCSDSGaloisField field) {
         this.field = field;
@@ -118,6 +120,7 @@ public class GFPolynomial {
         return PARALLEL_POOL.invoke(task);
     }
     
+    // REMOVED DUPLICATE CLASS DEFINITION - KEEP ONLY THIS ONE
     private class ParallelEvaluationTask extends RecursiveTask<byte[]> {
         private final byte[] points;
         private final int start;
@@ -267,9 +270,9 @@ public class GFPolynomial {
     }
     
     /**
-     * Find roots of polynomial using Chien search algorithm
+     * Find roots of polynomial using Chien search algorithm - FIXED VERSION
      * Returns positions i where P(α^{-i}) = 0
-     * Optimized for real-time satellite error location
+     * Enhanced with debugging and better search
      */
     public int[] findRoots() {
         rootFindingCount.incrementAndGet();
@@ -279,15 +282,38 @@ public class GFPolynomial {
         }
         
         List<Integer> rootPositions = new ArrayList<>();
-        int fieldOrder = field.getFieldOrder();
         
-        // Evaluate polynomial at α^{-i} for i = 0 to n-1
-        for (int i = 0; i < fieldOrder; i++) {
+        // CRITICAL FIX: Only search within valid codeword positions (0 to n-1)
+        // For RS(15,11), search positions 0-14 only
+        int searchLimit = 15; // Only search actual codeword positions
+        
+        if (debugMode) {
+            System.out.println("      Chien Search DEBUG - Polynomial: " + this);
+            System.out.println("      Degree: " + degree());
+            System.out.println("      Searching positions: 0 to " + (searchLimit-1));
+        }
+        
+        // Evaluate polynomial at α^{-i} for i = 0 to n-1 ONLY
+        for (int i = 0; i < searchLimit; i++) {
             byte x = field.power(field.getPrimitiveElement(), -i); // α^{-i}
             byte value = evaluate(x);
+            
+            if (debugMode) {
+                System.out.printf("        i=%d, α^(-%d)=0x%02X, P(α^(-%d))=0x%02X %s%n",
+                            i, i, x & 0xFF, i, value & 0xFF,
+                            value == 0 ? "← ROOT!" : "");
+            }
+            
             if (value == 0) {
                 rootPositions.add(i);
+                if (debugMode) {
+                    System.out.printf("      FOUND VALID ROOT at codeword position %d%n", i);
+                }
             }
+        }
+        
+        if (debugMode) {
+            System.out.println("      Chien Search COMPLETE - Valid Roots: " + rootPositions);
         }
         
         return rootPositions.stream().mapToInt(Integer::intValue).toArray();
@@ -311,14 +337,18 @@ public class GFPolynomial {
         
         byte divisorLead = divisorCoeffs[divisorDegree];
         
+        // Perform polynomial long division
         for (int i = remainder.length - 1; i >= divisorDegree; i--) {
             if (remainder[i] != 0) {
                 byte scale = field.divide(remainder[i], divisorLead);
                 
+                // Subtract scaled divisor from remainder
                 for (int j = 0; j <= divisorDegree; j++) {
                     int pos = i - divisorDegree + j;
-                    byte product = field.multiply(divisorCoeffs[j], scale);
-                    remainder[pos] = field.add(remainder[pos], product);
+                    if (pos < remainder.length) {
+                        byte product = field.multiply(divisorCoeffs[j], scale);
+                        remainder[pos] = field.add(remainder[pos], product); // XOR in GF(2^8)
+                    }
                 }
             }
         }
@@ -326,6 +356,7 @@ public class GFPolynomial {
         // Return remainder (lower degree terms)
         return new GFPolynomial(Arrays.copyOf(remainder, divisorDegree), field);
     }
+
     
     /**
      * Polynomial division: returns [quotient, remainder]

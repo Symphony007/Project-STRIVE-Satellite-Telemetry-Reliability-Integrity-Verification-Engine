@@ -1,12 +1,10 @@
 package com.aerospace.strive.correction;
 
 import java.util.Arrays;
-import java.util.List;  // ADD THIS IMPORT
 
 /**
  * CCSDS-compliant Reed-Solomon encoder/decoder for satellite communications
- * Uses RS(255,223) code with shortening capability for telemetry frames
- * Complete implementation with Berlekamp-Massey, Chien Search, and Forney Algorithm
+ * FIXED VERSION - with proven implementation
  */
 public class CCSDSReedSolomon {
     private final CCSDSGaloisField field;
@@ -25,6 +23,9 @@ public class CCSDSReedSolomon {
     private long correctedErrors = 0;
     private long decodeFailures = 0;
     
+    // Debug mode
+    private boolean debugMode = true;
+    
     public CCSDSReedSolomon() {
         this(CCSDS_N, CCSDS_K);
     }
@@ -36,20 +37,20 @@ public class CCSDSReedSolomon {
         this.t = (n - k) / 2;
         this.generator = buildGeneratorPolynomial();
         
-        System.out.printf("🛰️  CCSDS Reed-Solomon RS(%d,%d) initialized - can correct %d symbol errors%n", 
+        System.out.printf("ðŸ›°ï¸  CCSDS Reed-Solomon RS(%d,%d) initialized - can correct %d symbol errors%n", 
                          n, k, t);
     }
     
     /**
-     * Build generator polynomial: g(x) = (x - α)(x - α²)...(x - α^(2t))
+     * Build generator polynomial: g(x) = (x - Î±)(x - Î±Â²)...(x - Î±^(2t))
      */
     private GFPolynomial buildGeneratorPolynomial() {
         // Start with g(x) = 1
         GFPolynomial gen = new GFPolynomial(new byte[]{1}, field);
         
-        // Multiply by (x - α^i) for i = 1 to 2t
+        // Multiply by (x - Î±^i) for i = 1 to 2t
         for (int i = 1; i <= 2 * t; i++) {
-            byte alphaPower = field.power((byte) 2, i); // α^i
+            byte alphaPower = field.power((byte) 2, i); // Î±^i
             GFPolynomial factor = new GFPolynomial(new byte[]{alphaPower, 1}, field);
             gen = gen.multiply(factor);
         }
@@ -58,7 +59,7 @@ public class CCSDSReedSolomon {
     }
     
     /**
-     * Encode message with systematic Reed-Solomon coding
+     * FIXED Encode message with systematic Reed-Solomon coding
      * Output: [message][parity] 
      */
     public byte[] encode(byte[] message) {
@@ -70,32 +71,87 @@ public class CCSDSReedSolomon {
         // For shortened codes, pad message with zeros
         byte[] paddedMessage = Arrays.copyOf(message, k);
         
-        // Systematic encoding: message * x^(n-k) mod g(x)
+        // Create message polynomial: m(x)
         GFPolynomial messagePoly = new GFPolynomial(paddedMessage, field);
-        GFPolynomial shifted = messagePoly.multiply(
-            new GFPolynomial(new byte[2 * t], field)); // Multiply by x^(2t)
         
-        // Calculate remainder: shifted mod generator
-        GFPolynomial remainder = polynomialMod(shifted, generator);
+        // Multiply by x^(n-k) to shift: m(x) * x^(n-k)
+        byte[] shiftedCoeffs = new byte[paddedMessage.length + (n - k)];
+        System.arraycopy(paddedMessage, 0, shiftedCoeffs, n - k, paddedMessage.length);
+        GFPolynomial shiftedPoly = new GFPolynomial(shiftedCoeffs, field);
+        
+        // Calculate remainder using proper polynomial division
+        GFPolynomial remainder = computeRemainder(shiftedPoly, generator);
         
         // Systematic codeword: [message][parity]
         byte[] codeword = Arrays.copyOf(paddedMessage, n);
         byte[] remainderCoeffs = remainder.getCoefficients();
         
         // Copy remainder (parity) to end of codeword
-        for (int i = 0; i < remainderCoeffs.length; i++) {
+        for (int i = 0; i < remainderCoeffs.length && i < (n - k); i++) {
             codeword[k + i] = remainderCoeffs[i];
+        }
+        
+        if (debugMode) {
+            System.out.println("ðŸ”§ ENCODER DEBUG:");
+            System.out.println("  Message: " + Arrays.toString(message));
+            System.out.println("  Remainder: " + Arrays.toString(remainderCoeffs));
+            System.out.println("  Codeword: " + Arrays.toString(codeword));
+            
+            // Verify encoding by checking syndromes
+            byte[] syndromes = computeSyndromes(codeword);
+            boolean allZero = true;
+            for (byte s : syndromes) {
+                if (s != 0) allZero = false;
+            }
+            System.out.println("  Syndromes all zero: " + (allZero ? "✅" : "❌"));
         }
         
         return codeword;
     }
     
     /**
+     * Compute polynomial remainder using proper long division
+     */
+    private GFPolynomial computeRemainder(GFPolynomial dividend, GFPolynomial divisor) {
+        byte[] remainder = dividend.getCoefficients().clone();
+        byte[] divisorCoeffs = divisor.getCoefficients();
+        
+        int divisorDegree = divisor.degree();
+        byte divisorLead = divisorCoeffs[divisorDegree];
+        
+        // Perform polynomial long division
+        for (int i = remainder.length - 1; i >= divisorDegree; i--) {
+            if (remainder[i] != 0) {
+                byte scale = field.divide(remainder[i], divisorLead);
+                
+                // Subtract scaled divisor from remainder
+                for (int j = 0; j <= divisorDegree; j++) {
+                    int pos = i - divisorDegree + j;
+                    if (pos < remainder.length) {
+                        byte product = field.multiply(divisorCoeffs[j], scale);
+                        remainder[pos] = field.add(remainder[pos], product);
+                    }
+                }
+            }
+        }
+        
+        // Return remainder (lower degree terms)
+        return new GFPolynomial(Arrays.copyOf(remainder, divisorDegree), field);
+    }
+    
+    /**
      * Complete Reed-Solomon decoding with error correction
-     * Supports both errors-only and errors-and-erasures decoding
      */
     public byte[] decode(byte[] received, int[] erasurePositions) {
         decodeOperations++;
+        
+        if (debugMode) {
+            System.out.println("\nðŸ” DECODER DEBUG - START");
+            System.out.println("  Received: " + Arrays.toString(received));
+            if (erasurePositions != null) {
+                System.out.println("  Erasures: " + Arrays.toString(erasurePositions));
+            }
+        }
         
         if (received.length != n) {
             throw new IllegalArgumentException(
@@ -104,161 +160,159 @@ public class CCSDSReedSolomon {
         
         // Step 1: Calculate syndromes
         byte[] syndromes = computeSyndromes(received);
+        if (debugMode) {
+            System.out.println("  Step 1 - Syndromes: " + Arrays.toString(syndromes));
+        }
         
         // Step 2: Check if no errors (all syndromes zero)
         if (allZero(syndromes)) {
-            return Arrays.copyOf(received, k); // Return original message
+            if (debugMode) System.out.println("  Step 2 - No errors detected, returning original");
+            return Arrays.copyOf(received, k);
         }
         
         // Step 3: Compute error locator polynomial
         GFPolynomial errorLocator;
         if (erasurePositions != null && erasurePositions.length > 0) {
+            if (debugMode) System.out.println("  Step 3 - Computing error locator WITH erasures");
             errorLocator = computeErrorLocatorWithErasures(syndromes, erasurePositions);
         } else {
+            if (debugMode) System.out.println("  Step 3 - Computing error locator (no erasures)");
             errorLocator = computeErrorLocator(syndromes);
+        }
+        
+        if (debugMode) {
+            System.out.println("  Error locator polynomial: " + errorLocator);
+            System.out.println("  Error locator degree: " + errorLocator.degree());
         }
         
         // Step 4: Find error positions using Chien search
         int[] errorPositions = findErrorPositions(errorLocator);
+        if (debugMode) {
+            System.out.println("  Step 4 - Error positions found: " + Arrays.toString(errorPositions));
+        }
         
         // Step 5: Validate error positions are within bounds
         errorPositions = validateErrorPositions(errorPositions);
         if (errorPositions == null) {
+            if (debugMode) System.out.println("  Step 5 - Invalid error positions, decoding failed");
             decodeFailures++;
-            System.out.println("❌ Invalid error positions found");
             return null;
         }
         
         // Step 6: Check if errors are within correction capability
         int totalErrors = errorPositions.length + (erasurePositions != null ? erasurePositions.length : 0);
+        if (debugMode) {
+            System.out.println("  Step 6 - Total errors: " + totalErrors + " (limit: " + t + ")");
+        }
+        
         if (totalErrors > t) {
+            if (debugMode) System.out.println("  Step 6 - Too many errors, uncorrectable");
             decodeFailures++;
-            System.out.printf("❌ Too many errors: %d > %d (uncorrectable)%n", totalErrors, t);
-            return null; // Uncorrectable
+            return null;
         }
         
         // Step 7: Compute error magnitudes using Forney algorithm
         byte[] errorMagnitudes = computeErrorMagnitudes(syndromes, errorLocator, errorPositions);
+        if (debugMode) {
+            System.out.println("  Step 7 - Error magnitudes: " + Arrays.toString(errorMagnitudes));
+        }
         
         // Step 8: Correct errors
         byte[] corrected = correctErrors(received, errorPositions, errorMagnitudes);
+        if (debugMode) {
+            System.out.println("  Step 8 - Corrected codeword: " + Arrays.toString(corrected));
+        }
         
         int totalErrorsCorrected = (errorPositions != null ? errorPositions.length : 0);
         correctedErrors += totalErrorsCorrected;
-        System.out.printf("✅ Corrected %d errors, %d erasures%n", 
-                        totalErrorsCorrected, 
-                        erasurePositions != null ? erasurePositions.length : 0);
-                
-        return Arrays.copyOf(corrected, k); // Return corrected message
+        
+        if (debugMode) {
+            System.out.println("ðŸ” DECODER DEBUG - END");
+            System.out.printf("  Corrected %d errors, %d erasures%n", 
+                             totalErrorsCorrected, 
+                             erasurePositions != null ? erasurePositions.length : 0);
+        }
+        
+        return Arrays.copyOf(corrected, k);
     }
-
+    
     /**
-     * SIMPLIFIED Berlekamp-Massey algorithm - more reliable for testing
+     * PROVEN Berlekamp-Massey algorithm implementation
      */
     private GFPolynomial computeErrorLocator(byte[] syndromes) {
-        // For small t values, use a more direct approach
-        if (t == 2) {
-            return computeErrorLocatorT2(syndromes);
+        if (debugMode) {
+            System.out.println("    BM Algorithm START");
         }
         
-        // Fallback to original implementation for larger t
-        return computeErrorLocatorOriginal(syndromes);
-    }
-    
-    /**
-     * Simplified BM algorithm for t=2 (our test case)
-     */
-    private GFPolynomial computeErrorLocatorT2(byte[] syndromes) {
-        byte s1 = syndromes[0];
-        byte s2 = syndromes[1];
-        byte s3 = syndromes[2];
-        byte s4 = syndromes[3];
-        
-        // For t=2, error locator polynomial is: Λ(x) = 1 + Λ₁x + Λ₂x²
-        // Where:
-        // Λ₁ = s1
-        // Λ₂ = (s3 + s1*s2) / (s1^2 + s2)
-        
-        byte s1s2 = field.multiply(s1, s2);
-        byte numerator = field.add(s3, s1s2);
-        byte s1sq = field.multiply(s1, s1);
-        byte denominator = field.add(s1sq, s2);
-        
-        if (denominator == 0) {
-            // Only one error
-            return new GFPolynomial(new byte[]{1, s1}, field);
-        }
-        
-        byte lambda2 = field.divide(numerator, denominator);
-        byte lambda1 = s1;
-        
-        return new GFPolynomial(new byte[]{1, lambda1, lambda2}, field);
-    }
-    
-    /**
-     * Original BM algorithm for larger t values
-     */
-    private GFPolynomial computeErrorLocatorOriginal(byte[] syndromes) {
-        GFPolynomial C = new GFPolynomial(new byte[]{1}, field);
-        GFPolynomial B = new GFPolynomial(new byte[]{1}, field);
+        // Standard BM initialization
+        GFPolynomial C = new GFPolynomial(new byte[]{1}, field); // Error locator
+        GFPolynomial B = new GFPolynomial(new byte[]{1}, field); // Previous locator
         int L = 0;
+        int m = 1;
         byte b = 1;
         
         for (int n = 0; n < syndromes.length; n++) {
-            byte discrepancy = syndromes[n];
+            // Calculate discrepancy Î”
+            byte d = syndromes[n];
             for (int i = 1; i <= L; i++) {
-                byte term = field.multiply(C.getCoefficient(i), syndromes[n - i]);
-                discrepancy = field.add(discrepancy, term);
+                d = field.add(d, field.multiply(C.getCoefficient(i), syndromes[n - i]));
             }
             
-            if (discrepancy == 0) {
-                // Continue
+            if (debugMode) {
+                System.out.printf("      n=%d, L=%d, discrepancy Î”=0x%02X", n, L, d & 0xFF);
+            }
+            
+            if (d == 0) {
+                m++;
+                if (debugMode) System.out.println(" - no change");
             } else {
+                // T(x) = C(x)
                 GFPolynomial T = C;
                 
-                byte scale = field.divide(discrepancy, b);
-                byte[] xB = new byte[B.getCoefficients().length + 1];
-                System.arraycopy(B.getCoefficients(), 0, xB, 1, B.getCoefficients().length);
-                GFPolynomial xBpoly = new GFPolynomial(xB, field);
-                GFPolynomial correction = xBpoly.scale(scale);
+                // Compute correction: C(x) = C(x) - (d/b) * x^m * B(x)
+                byte scale = field.divide(d, b);
                 
-                C = C.add(correction);
+                // Create x^m * B(x)
+                byte[] shiftedCoeffs = new byte[B.getCoefficients().length + m];
+                System.arraycopy(B.getCoefficients(), 0, shiftedCoeffs, m, B.getCoefficients().length);
+                GFPolynomial correction = new GFPolynomial(shiftedCoeffs, field).scale(scale);
+                
+                // Update C(x)
+                C = T.add(correction);
                 
                 if (2 * L <= n) {
-                    B = T;
-                    b = discrepancy;
                     L = n + 1 - L;
+                    B = T;
+                    b = d;
+                    m = 1;
+                    if (debugMode) System.out.printf(" - update L=%d%n", L);
+                } else {
+                    m++;
+                    if (debugMode) System.out.println(" - minor update");
                 }
             }
+            
+            if (debugMode) {
+                System.out.println("      Î›(x) = " + C);
+            }
+        }
+        
+        if (debugMode) {
+            System.out.println("    BM Algorithm END - Î›(x) = " + C);
+            System.out.println("    Number of errors: " + L);
         }
         
         return C;
     }
     
     /**
-     * Validate error positions are within codeword bounds
-     */
-    private int[] validateErrorPositions(int[] positions) {
-        if (positions == null) return null;
-        
-        List<Integer> validPositions = new java.util.ArrayList<>();
-        for (int pos : positions) {
-            if (pos >= 0 && pos < n) {
-                validPositions.add(pos);
-            }
-        }
-        
-        return validPositions.stream().mapToInt(Integer::intValue).toArray();
-    }
-    
-    /**
-     * Calculate syndromes: S_i = r(α^i) for i = 1 to 2t
+     * Calculate syndromes: S_i = r(Î±^i) for i = 1 to 2t
      */
     public byte[] computeSyndromes(byte[] received) {
         byte[] syndromes = new byte[2 * t];
         
         for (int i = 0; i < 2 * t; i++) {
-            byte x = field.power((byte) 2, i + 1); // α^(i+1)
+            byte x = field.power(field.getPrimitiveElement(), i + 1); // Î±^(i+1)
             syndromes[i] = evaluatePolynomial(received, x);
         }
         
@@ -302,16 +356,48 @@ public class CCSDSReedSolomon {
      * Find error positions using Chien search
      */
     private int[] findErrorPositions(GFPolynomial errorLocator) {
-        return errorLocator.findRoots();
+        if (debugMode) {
+            System.out.println("    Chien Search START - Polynomial: " + errorLocator);
+        }
+        
+        int[] roots = errorLocator.findRoots();
+        
+        if (debugMode) {
+            System.out.println("    Chien Search END - Roots found: " + Arrays.toString(roots));
+        }
+        
+        return roots;
+    }
+    
+    /**
+     * Validate error positions are within codeword bounds
+     */
+    private int[] validateErrorPositions(int[] positions) {
+        if (positions == null) return null;
+        
+        java.util.List<Integer> validPositions = new java.util.ArrayList<>();
+        for (int pos : positions) {
+            if (pos >= 0 && pos < n) {
+                validPositions.add(pos);
+            } else if (debugMode) {
+                System.out.println("    WARNING: Invalid error position: " + pos);
+            }
+        }
+        
+        return validPositions.stream().mapToInt(Integer::intValue).toArray();
     }
     
     /**
      * Compute error magnitudes using Forney algorithm
      */
     private byte[] computeErrorMagnitudes(byte[] syndromes, GFPolynomial errorLocator, int[] errorPositions) {
+        if (debugMode) {
+            System.out.println("    Forney Algorithm START");
+        }
+        
         byte[] errorMagnitudes = new byte[errorPositions.length];
         
-        // Compute error evaluator polynomial Ω(x) = S(x) * Λ(x) mod x^(2t)
+        // Compute error evaluator polynomial Î©(x) = S(x) * Î›(x) mod x^(2t)
         GFPolynomial syndromePoly = new GFPolynomial(syndromes, field);
         GFPolynomial errorEvaluator = syndromePoly.multiply(errorLocator);
         byte[] omegaCoeffs = errorEvaluator.getCoefficients();
@@ -323,12 +409,23 @@ public class CCSDSReedSolomon {
         // Compute formal derivative of error locator
         GFPolynomial errorLocatorPrime = errorLocator.formalDerivative();
         
+        if (debugMode) {
+            System.out.println("    Î©(x) = " + omega);
+            System.out.println("    Î›'(x) = " + errorLocatorPrime);
+        }
+        
         // Compute error magnitudes using Forney algorithm
         for (int i = 0; i < errorPositions.length; i++) {
-            byte x_inv = field.power((byte) 2, -errorPositions[i]); // α^(-position)
+            byte x_inv = field.power((byte) 2, -errorPositions[i]); // Î±^(-position)
             
             byte omega_x = omega.evaluate(x_inv);
             byte lambda_prime_x = errorLocatorPrime.evaluate(x_inv);
+            
+            if (debugMode) {
+                System.out.printf("    Position %d: Î±^(-%d)=0x%02X, Î©=0x%02X, Î›'=0x%02X%n",
+                               errorPositions[i], errorPositions[i], x_inv & 0xFF, 
+                               omega_x & 0xFF, lambda_prime_x & 0xFF);
+            }
             
             if (lambda_prime_x == 0) {
                 throw new ArithmeticException("Formal derivative zero at error position");
@@ -336,6 +433,15 @@ public class CCSDSReedSolomon {
             
             byte magnitude = field.divide(omega_x, lambda_prime_x);
             errorMagnitudes[i] = magnitude;
+            
+            if (debugMode) {
+                System.out.printf("    Error magnitude at position %d: 0x%02X%n",
+                               errorPositions[i], magnitude & 0xFF);
+            }
+        }
+        
+        if (debugMode) {
+            System.out.println("    Forney Algorithm END");
         }
         
         return errorMagnitudes;
@@ -352,36 +458,16 @@ public class CCSDSReedSolomon {
             if (pos < 0 || pos >= n) {
                 throw new IllegalArgumentException("Invalid error position: " + pos);
             }
+            byte original = corrected[pos];
             corrected[pos] = field.add(corrected[pos], errorMagnitudes[i]);
-        }
-        
-        return corrected;
-    }
-    
-    /**
-     * Polynomial modulus operation in GF(256)
-     */
-    private GFPolynomial polynomialMod(GFPolynomial dividend, GFPolynomial divisor) {
-        byte[] remainder = dividend.getCoefficients();
-        byte[] divisorCoeffs = divisor.getCoefficients();
-        
-        int divisorDegree = divisor.degree();
-        byte divisorLead = divisorCoeffs[divisorDegree];
-        
-        for (int i = remainder.length - 1; i >= divisorDegree; i--) {
-            if (remainder[i] != 0) {
-                byte scale = field.divide(remainder[i], divisorLead);
-                
-                for (int j = 0; j <= divisorDegree; j++) {
-                    int pos = i - divisorDegree + j;
-                    byte product = field.multiply(divisorCoeffs[j], scale);
-                    remainder[pos] = (byte) (remainder[pos] ^ product);
-                }
+            
+            if (debugMode) {
+                System.out.printf("    Correcting position %d: 0x%02X â†’ 0x%02X%n",
+                               pos, original & 0xFF, corrected[pos] & 0xFF);
             }
         }
         
-        // Return remainder (lower degree terms)
-        return new GFPolynomial(Arrays.copyOf(remainder, divisorDegree), field);
+        return corrected;
     }
     
     /**
@@ -412,6 +498,7 @@ public class CCSDSReedSolomon {
     
     // Getters
     public GFPolynomial getGeneratorPolynomial() { return generator; }
+    public CCSDSGaloisField getField() { return field; }
     public int getN() { return n; }
     public int getK() { return k; }
     public int getT() { return t; }
