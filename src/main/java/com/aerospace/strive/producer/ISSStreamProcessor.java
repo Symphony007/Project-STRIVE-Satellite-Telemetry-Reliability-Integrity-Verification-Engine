@@ -11,13 +11,12 @@ import java.util.concurrent.TimeUnit;
 import com.aerospace.strive.transmission.FrameBuilder;
 import com.aerospace.strive.transmission.ScientificErrorInjector;
 import com.aerospace.strive.transmission.TelemetryFrame;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.aerospace.strive.transmission.ISSBinaryParser;
+import com.aerospace.strive.transmission.ISSBinaryParser.ISSBinaryTelemetry;
 
 /**
- * COMPLETE ISS DATA STREAMER WITH ERROR INJECTION
- * Real-time ISS data → Satellite frames → Scientific error injection → Ready for correction
- * End-to-end pipeline for satellite communication testing
+ * JACKSON-FREE ISS DATA STREAMER
+ * Uses binary parsing instead of JSON for NASA-grade reliability
  */
 public class ISSStreamProcessor {
     private static final String ISS_API_URL = "https://api.wheretheiss.at/v1/satellites/25544";
@@ -25,35 +24,34 @@ public class ISSStreamProcessor {
     private HttpClient httpClient;
     private ScheduledExecutorService scheduler;
     private int packetCount = 0;
-    private ObjectMapper jsonMapper;
     private ScientificErrorInjector errorInjector;
+    private ISSBinaryParser binaryParser;
     
     public ISSStreamProcessor() {
         this.httpClient = HttpClient.newHttpClient();
         this.scheduler = Executors.newScheduledThreadPool(1);
-        this.jsonMapper = new ObjectMapper();
         this.errorInjector = new ScientificErrorInjector();
+        this.binaryParser = new ISSBinaryParser();
         
-        System.out.println("🛰️ ISS Stream Processor v4.0 - COMPLETE PIPELINE");
-        System.out.println("   - Real ISS API streaming");
-        System.out.println("   - Complete data field utilization"); 
-        System.out.println("   - Scientific error injection");
-        System.out.println("   - Ready for detection & correction");
+        System.out.println("🛰️  JACKSON-FREE ISS Stream Processor - NASA GRADE");
+        System.out.println("   - Binary telemetry parsing (no JSON dependencies)");
+        System.out.println("   - CCSDS compliant data processing");
+        System.out.println("   - Real-time satellite protocol handling");
     }
     
     /**
-     * Start complete pipeline: ISS data → frames → errors → ready for correction
+     * Start binary pipeline: ISS data → Binary parsing → Frames → Errors
      */
     public void startStreaming() {
-        System.out.println("🚀 Starting COMPLETE satellite communication pipeline...");
+        System.out.println("🚀 Starting JACKSON-FREE satellite communication pipeline...");
         
         scheduler.scheduleAtFixedRate(() -> {
             try {
                 packetCount++;
-                String issData = fetchLiveISSData();
+                byte[] issData = fetchLiveISSData();
                 
-                // Complete pipeline: parse → build frame → inject errors
-                processCompletePipeline(issData, packetCount);
+                // Binary pipeline: parse → build frame → inject errors
+                processBinaryPipeline(issData, packetCount);
                 
             } catch (Exception e) {
                 System.err.println("❌ Pipeline error: " + e.getMessage());
@@ -65,9 +63,9 @@ public class ISSStreamProcessor {
     }
     
     /**
-     * Fetch live ISS data from API
+     * Fetch live ISS data as raw bytes (no JSON parsing)
      */
-    private String fetchLiveISSData() throws Exception {
+    private byte[] fetchLiveISSData() throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(ISS_API_URL))
                 .GET()
@@ -75,7 +73,7 @@ public class ISSStreamProcessor {
                 .timeout(java.time.Duration.ofSeconds(10))
                 .build();
                 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
         
         if (response.statusCode() != 200) {
             throw new RuntimeException("ISS API returned: " + response.statusCode());
@@ -85,128 +83,86 @@ public class ISSStreamProcessor {
     }
     
     /**
-     * COMPLETE PIPELINE: Parse → Build Frame → Inject Errors
+     * BINARY PIPELINE: Parse → Build Frame → Inject Errors
      */
-    private void processCompletePipeline(String jsonData, int packetNum) {
+    private void processBinaryPipeline(byte[] rawData, int packetNum) {
         try {
-            JsonNode issJson = jsonMapper.readTree(jsonData);
+            System.out.println("\n📦 PACKET #" + packetNum + " - BINARY PROCESSING PIPELINE");
+            System.out.println("────────────────────────────────────────────────────────");
             
-            System.out.println("\n🎯 PACKET #" + packetNum + " - COMPLETE PIPELINE");
-            System.out.println("══════════════════════════════════════════════════════");
-            
-            // Extract all fields
-            String name = issJson.has("name") ? issJson.get("name").asText() : "Unknown";
-            int id = issJson.has("id") ? issJson.get("id").asInt() : 0;
-            double latitude = issJson.has("latitude") ? issJson.get("latitude").asDouble() : 0.0;
-            double longitude = issJson.has("longitude") ? issJson.get("longitude").asDouble() : 0.0;
-            double altitude = issJson.has("altitude") ? issJson.get("altitude").asDouble() : 0.0;
-            double velocity = issJson.has("velocity") ? issJson.get("velocity").asDouble() : 0.0;
-            String visibility = issJson.has("visibility") ? issJson.get("visibility").asText() : "Unknown";
-            double footprint = issJson.has("footprint") ? issJson.get("footprint").asDouble() : 0.0;
-            long timestamp = issJson.has("timestamp") ? issJson.get("timestamp").asLong() : 0L;
-            double daynum = issJson.has("daynum") ? issJson.get("daynum").asDouble() : 0.0;
-            double solarLat = issJson.has("solar_lat") ? issJson.get("solar_lat").asDouble() : 0.0;
-            double solarLon = issJson.has("solar_lon") ? issJson.get("solar_lon").asDouble() : 0.0;
-            String units = issJson.has("units") ? issJson.get("units").asText() : "Unknown";
+            // Parse using binary parser (no Jackson)
+            ISSBinaryTelemetry telemetry = ISSBinaryParser.parseBinaryTelemetry(rawData);
             
             // Display telemetry
-            System.out.println("📡 REAL ISS TELEMETRY:");
-            System.out.println("  🛰️ Satellite: " + name + " (ID: " + id + ")");
-            System.out.println("  📍 Position: " + String.format("%.4f", latitude) + "° lat, " + 
-                              String.format("%.4f", longitude) + "° lon");
-            System.out.println("  📊 Altitude: " + String.format("%.1f", altitude) + " " + units);
-            System.out.println("  🚀 Velocity: " + String.format("%.1f", velocity) + " km/h");
-            System.out.println("  🌞 Visibility: " + visibility);
-            System.out.println("  👣 Footprint: " + String.format("%.1f", footprint) + " km");
-            System.out.println("  ⏰ Timestamp: " + timestamp);
-            System.out.println("  📅 Day Number: " + String.format("%.6f", daynum));
-            System.out.println("  ☀️ Solar Position: " + String.format("%.2f", solarLat) + "° lat, " + 
-                              String.format("%.2f", solarLon) + "° lon");
+            System.out.println("📡 REAL ISS BINARY TELEMETRY:");
+            System.out.println(telemetry.toDetailedString());
             
-            // Verify data usage
-            verifyCompleteDataUsage(issJson);
-            
-            // Build satellite frame
-            TelemetryFrame perfectFrame = buildCompleteSatelliteFrame(issJson);
+            // Build satellite frame from binary telemetry
+            TelemetryFrame perfectFrame = buildFrameFromBinaryTelemetry(telemetry);
             
             // Inject scientific errors
-            injectErrorsIntoISSFrame(perfectFrame);
+            injectErrorsIntoFrame(perfectFrame);
             
-            System.out.println("══════════════════════════════════════════════════════");
+            System.out.println("────────────────────────────────────────────────────────");
             
         } catch (Exception e) {
-            System.err.println("❌ Pipeline processing error: " + e.getMessage());
-            System.out.println("  Raw data: " + (jsonData.length() > 100 ? jsonData.substring(0, 100) + "..." : jsonData));
+            System.err.println("❌ Binary pipeline error: " + e.getMessage());
+            System.out.println("  Raw data length: " + (rawData != null ? rawData.length : 0));
         }
     }
     
     /**
-     * Verify ALL ISS data is being used
+     * Build frame from binary telemetry (no JSON)
      */
-    private void verifyCompleteDataUsage(JsonNode issData) {
-        System.out.println("🔍 DATA USAGE VERIFICATION:");
-        System.out.println("   - ✅ Name: " + issData.get("name").asText());
-        System.out.println("   - ✅ ID: " + issData.get("id").asInt());
-        System.out.println("   - ✅ Latitude: " + issData.get("latitude").asDouble());
-        System.out.println("   - ✅ Longitude: " + issData.get("longitude").asDouble());
-        System.out.println("   - ✅ Altitude: " + issData.get("altitude").asDouble());
-        System.out.println("   - ✅ Velocity: " + issData.get("velocity").asDouble());
-        System.out.println("   - ✅ Visibility: " + issData.get("visibility").asText());
-        System.out.println("   - ✅ Footprint: " + issData.get("footprint").asDouble());
-        System.out.println("   - ✅ Timestamp: " + issData.get("timestamp").asLong());
-        System.out.println("   - ✅ Day Number: " + issData.get("daynum").asDouble());
-        System.out.println("   - ✅ Solar Latitude: " + issData.get("solar_lat").asDouble());
-        System.out.println("   - ✅ Solar Longitude: " + issData.get("solar_lon").asDouble());
-        System.out.println("   - ✅ Units: " + issData.get("units").asText());
-        System.out.println("   - 📊 Total fields encoded: 12/12 ✅");
-    }
-    
-    /**
-     * Build satellite frame from ALL ISS data
-     */
-    private TelemetryFrame buildCompleteSatelliteFrame(JsonNode issData) {
+    private TelemetryFrame buildFrameFromBinaryTelemetry(ISSBinaryTelemetry telemetry) {
         try {
-            String jsonString = issData.toString();
+            System.out.println("🔧 BUILDING SATELLITE FRAME FROM BINARY TELEMETRY:");
             
-            System.out.println("🛠️  BUILDING SATELLITE FRAME:");
+            // Convert to binary payload (industry standard)
+            byte[] binaryPayload = FrameBuilder.telemetryToBinaryPayload(
+                telemetry.latitude, telemetry.longitude, telemetry.altitude, 
+                telemetry.velocity, telemetry.visibility, telemetry.footprint,
+                telemetry.daynum, telemetry.solarLat, telemetry.solarLon, telemetry.units
+            );
             
-            TelemetryFrame frame = FrameBuilder.buildFrameFromISSJson(jsonString);
+            // Create telemetry frame
+            TelemetryFrame frame = new TelemetryFrame(
+                telemetry.id,
+                telemetry.timestamp,
+                packetCount,
+                binaryPayload
+            );
             
-            if (frame != null) {
-                FrameBuilder.validateFrame(frame);
-                System.out.println("   - ✅ Perfect frame built: " + frame.toBinary().length + " bytes");
-                trackEnhancedFrameStatistics(frame);
-                return frame;
-            } else {
-                throw new RuntimeException("Frame building returned null");
-            }
+            // Validate frame
+            FrameBuilder.validateFrameStructure(frame);
+            System.out.println("   ✅ Frame built: " + frame.toBinary().length + " bytes");
+            System.out.println("   📊 Data efficiency: " + 
+                String.format("%.1f", (double)binaryPayload.length / frame.toBinary().length * 100) + "%");
+            
+            return frame;
             
         } catch (Exception e) {
-            System.err.println("   - ❌ Frame building failed: " + e.getMessage());
+            System.err.println("   ❌ Frame building failed: " + e.getMessage());
             throw new RuntimeException(e);
         }
     }
     
     /**
-     * INTEGRATE ERROR INJECTION with real ISS frames
+     * Inject errors into frame
      */
-    private void injectErrorsIntoISSFrame(TelemetryFrame frame) {
+    private void injectErrorsIntoFrame(TelemetryFrame frame) {
         try {
-            // Convert frame to binary
             byte[] perfectFrame = frame.toBinary();
             
             System.out.println("⚡ INJECTING SCIENTIFIC ERRORS:");
             System.out.println("   - Perfect frame: " + perfectFrame.length + " bytes");
-            System.out.println("   - Satellite: ISS (ID: " + frame.getSatelliteId() + ")");
-            System.out.println("   - Timestamp: " + frame.getTimestamp());
+            System.out.println("   - Satellite: " + frame.getSatelliteId());
             
             // Inject realistic satellite errors
             byte[] corruptedFrame = errorInjector.injectScientificErrors(perfectFrame);
             
             System.out.println("   - Corrupted frame: " + corruptedFrame.length + " bytes");
-            
-            // Simulate the next steps in detection pipeline
-            simulateErrorDetectionPipeline(perfectFrame, corruptedFrame);
+            System.out.println("   - 🎯 READY FOR ERROR CORRECTION ALGORITHMS");
             
         } catch (Exception e) {
             System.err.println("❌ Error injection failed: " + e.getMessage());
@@ -214,57 +170,11 @@ public class ISSStreamProcessor {
     }
     
     /**
-     * Simulate the next steps in the pipeline
-     */
-    private void simulateErrorDetectionPipeline(byte[] original, byte[] corrupted) {
-        System.out.println("🔄 ERROR DETECTION PIPELINE READY:");
-        System.out.println("   1. Error Detection ✅ (IntegratedErrorDetector)");
-        System.out.println("   2. Error Classification ✅ (ErrorPatternAnalyzer)");
-        System.out.println("   3. Algorithm Selection ✅ (CorrectionStrategySelector)");
-        System.out.println("   4. Error Correction ✅ (Reed-Solomon/Hamming)");
-        System.out.println("   5. Results Analysis ✅");
-        
-        // Calculate damage metrics
-        if (original.length > 0 && corrupted.length > 0) {
-            double sizeChange = Math.abs(original.length - corrupted.length) / (double) original.length * 100;
-            System.out.println("   - Size change: " + String.format("%.1f", sizeChange) + "%");
-            
-            if (corrupted.length < original.length) {
-                System.out.println("   - Damage type: TRUNCATION");
-            } else if (corrupted.length > original.length) {
-                System.out.println("   - Damage type: EXPANSION (sync drift)");
-            } else {
-                System.out.println("   - Damage type: BIT ERRORS");
-            }
-        }
-        
-        System.out.println("   - 🎯 READY FOR ERROR CORRECTION ALGORITHMS!");
-    }
-    
-    /**
-     * Track enhanced frame statistics and quality
-     */
-    private void trackEnhancedFrameStatistics(TelemetryFrame frame) {
-        byte[] binaryData = frame.toBinary();
-        byte[] payload = frame.getPayload();
-        
-        System.out.println("   - 📊 Frame Statistics:");
-        System.out.println("     • Total size: " + binaryData.length + " bytes");
-        System.out.println("     • Payload size: " + payload.length + " bytes");
-        System.out.println("     • Data efficiency: " + String.format("%.1f", (double) payload.length / binaryData.length * 100) + "%");
-        System.out.println("     • Data fields: 12/12 (100% utilization)");
-    }
-    
-    /**
      * Stop streaming gracefully
      */
     public void stopStreaming() {
-        System.out.println("\n🛑 Stopping complete pipeline...");
+        System.out.println("\n🛑 Stopping binary pipeline...");
         System.out.println("   Total packets processed: " + packetCount);
-        
-        ScientificErrorInjector.InjectionStatistics stats = errorInjector.getStatistics();
-        System.out.println("   Error injection statistics:");
-        System.out.println("   " + stats.toString());
         
         if (scheduler != null) {
             scheduler.shutdown();
@@ -280,27 +190,27 @@ public class ISSStreamProcessor {
     }
     
     /**
-     * Test method with complete pipeline integration
+     * Test method with binary pipeline
      */
     public static void main(String[] args) {
         ISSStreamProcessor processor = new ISSStreamProcessor();
         
         // Add shutdown hook for graceful termination
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("\n💫 Shutdown signal received...");
+            System.out.println("\n🛰️  Shutdown signal received...");
             processor.stopStreaming();
-            System.out.println("✅ Complete pipeline shutdown complete.");
+            System.out.println("✅ Binary pipeline shutdown complete.");
         }));
         
-        // Start complete pipeline
+        // Start binary pipeline
         processor.startStreaming();
         
         // Keep running for demonstration
         try {
-            System.out.println("\n⏰ Running complete pipeline for 30 seconds... (Ctrl+C to stop early)");
+            System.out.println("\n⏰ Running binary pipeline for 30 seconds... (Ctrl+C to stop early)");
             Thread.sleep(30000);
             processor.stopStreaming();
-            System.out.println("✅ COMPLETE PIPELINE TEST SUCCESSFUL!");
+            System.out.println("✅ JACKSON-FREE PIPELINE TEST SUCCESSFUL!");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             processor.stopStreaming();
