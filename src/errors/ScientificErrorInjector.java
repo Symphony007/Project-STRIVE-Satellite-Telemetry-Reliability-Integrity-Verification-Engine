@@ -17,12 +17,12 @@ public class ScientificErrorInjector {
     private final Random random;
     private final ChannelModel channelModel;
     
-    // Realistic satellite error probabilities (reduced for coding capability)
-    private static final double BURST_ERROR_PROB = 0.08;    // Reduced from 0.12
-    private static final double RANDOM_ERROR_PROB = 0.05;   // Reduced from 0.08
-    private static final double SYNC_DRIFT_PROB = 0.04;     // Reduced from 0.06
-    private static final double PACKET_LOSS_PROB = 0.02;    // Reduced from 0.04
-    private static final double GAUSSIAN_NOISE_PROB = 0.06; // Reduced from 0.10
+
+    private static final double BURST_ERROR_PROB = 0.15;    
+    private static final double RANDOM_ERROR_PROB = 0.10;   
+    private static final double SYNC_DRIFT_PROB = 0.08;     
+    private static final double PACKET_LOSS_PROB = 0.05;    
+    private static final double GAUSSIAN_NOISE_PROB = 0.12; 
     
     public ScientificErrorInjector() {
         this.random = new Random();

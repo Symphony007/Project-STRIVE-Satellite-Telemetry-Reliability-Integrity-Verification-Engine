@@ -1,5 +1,3 @@
-import correction.ErrorClassifier;
-import correction.ErrorPatternAnalyzer;
 import correction.ViterbiDecoder;
 import data.ISSDataFetcher;
 import data.TelemetryParser;
@@ -7,85 +5,76 @@ import errors.ScientificErrorInjector;
 import frames.TelemetryFrame;
 
 /**
- * NASA STRIVE UNIFIED PIPELINE
- * Single API call flows through complete satellite error correction system
- * Realistic error rates with measurable coding gains
+ * NASA STRIVE PIPELINE - WITH WORKING VITERBI
  */
 public class STRIVEPipeline {
     
     public static void main(String[] args) {
         try {
-            System.out.println("=== NASA STRIVE UNIFIED PIPELINE ===");
-            System.out.println("Single API Call → Complete Error Correction Flow");
-            System.out.println("Realistic Satellite Communication Simulation");
+            System.out.println("=== NASA STRIVE PIPELINE - WORKING VITERBI ===");
+            System.out.println("Testing complete error correction pipeline\n");
             
             for (int iteration = 0; iteration < 3; iteration++) {
-                System.out.println("\n" + "=".repeat(60));
-                System.out.println("ITERATION " + (iteration + 1) + " - LIVE ISS DATA PROCESSING");
+                System.out.println("=".repeat(60));
+                System.out.println("ITERATION " + (iteration + 1));
                 
-                // SINGLE API CALL FOR ENTIRE PIPELINE
+                // SINGLE API CALL
                 ISSDataFetcher fetcher = new ISSDataFetcher();
                 String rawData = fetcher.fetchLiveTelemetry();
                 TelemetryParser parser = new TelemetryParser();
                 TelemetryParser.TelemetryData telemetry = parser.parseRawTelemetry(rawData);
                 
-                System.out.println("ISS Position: " + 
-                    String.format("LAT:%.3f LON:%.3f ALT:%.1fkm VEL:%.1fkm/h", 
-                    telemetry.latitude, telemetry.longitude, telemetry.altitude, telemetry.velocity));
+                System.out.println("ISS: LAT:" + String.format("%.3f", telemetry.latitude) + 
+                                 " LON:" + String.format("%.3f", telemetry.longitude));
                 
-                // STAGE 1: Frame Construction
+                // BUILD CLEAN FRAME
                 TelemetryFrame frameBuilder = new TelemetryFrame();
                 byte[] cleanFrame = frameBuilder.buildFromTelemetry(telemetry);
-                System.out.println("✓ Frame Constructed: " + cleanFrame.length + " bytes, CRC: " + frameBuilder.validateFrame());
+                System.out.println("Clean frame: " + cleanFrame.length + " bytes, CRC: " + frameBuilder.validateFrame());
                 
-                // STAGE 2: Error Injection (REALISTIC RATES)
+                // TEST 1: VITERBI ONLY
+                System.out.println("\n--- VITERBI TEST ---");
+                ViterbiDecoder viterbi = new ViterbiDecoder();
+                
+                // Encode clean data
+                byte[] encoded = viterbi.encode(cleanFrame);
+                System.out.println("Encoded: " + encoded.length + " bytes (Rate 1/2)");
+                
+                // Inject errors on ENCODED data
                 ScientificErrorInjector errorInjector = new ScientificErrorInjector();
-                byte[] corruptedFrame = errorInjector.injectRealisticErrors(cleanFrame);
+                byte[] corruptedEncoded = errorInjector.injectRealisticErrors(encoded, 0.3);
                 
-                // STAGE 3: Error Analysis
-                ErrorPatternAnalyzer analyzer = new ErrorPatternAnalyzer();
-                ErrorPatternAnalyzer.ErrorAnalysis analysis = analyzer.analyzeErrorPattern(cleanFrame, corruptedFrame);
-                System.out.println("✓ Error Analysis: " + analysis.primaryErrorType + 
-                                 ", Bit Errors: " + analysis.totalBitErrors + 
-                                 ", Density: " + String.format("%.1f%%", analysis.errorDensity * 100));
+                // Count errors on ENCODED data (proper comparison)
+                int encodedErrors = countBitErrors(encoded, corruptedEncoded);
+                System.out.println("Errors on encoded data: " + encodedErrors);
                 
-                // STAGE 4: Intelligent Classification
-                ErrorClassifier classifier = new ErrorClassifier();
-                ErrorClassifier.CorrectionStrategy strategy = classifier.classifyOptimalStrategy(analysis);
-                System.out.println("✓ Correction Strategy: " + strategy.primaryAlgorithm);
+                // Decode with Viterbi
+                byte[] viterbiCorrected = viterbi.decode(corruptedEncoded);
                 
-                // STAGE 5: Viterbi Correction (if applicable)
-                if (strategy.primaryAlgorithm == ErrorClassifier.CorrectionAlgorithm.VITERBI_DECODER) {
-                    ViterbiDecoder viterbi = new ViterbiDecoder();
-                    byte[] encodedData = viterbi.encode(cleanFrame);
-                    byte[] corruptedEncoded = errorInjector.injectRealisticErrors(encodedData, 0.3); // Reduced errors for encoded data
-                    byte[] correctedData = viterbi.decode(corruptedEncoded);
-                    
-                    int preErrors = countBitErrors(cleanFrame, corruptedEncoded);
-                    int postErrors = countBitErrors(cleanFrame, correctedData);
-                    double correctionRate = (preErrors > 0) ? (preErrors - postErrors) / (double) preErrors * 100 : 0;
-                    
-                    System.out.println("✓ Viterbi Performance: " + preErrors + " → " + postErrors + 
-                                     " errors, Correction: " + String.format("%.1f%%", correctionRate));
-                    
-                    // Validate final frame
-                    TelemetryFrame finalFrame = new TelemetryFrame();
-                    System.arraycopy(correctedData, 0, finalFrame.getFrameData(), 0, correctedData.length);
-                    System.out.println("✓ Final Frame Valid: " + finalFrame.validateFrame());
+                // Count errors on DECODED vs ORIGINAL (proper comparison)
+                int viterbiErrors = countBitErrors(cleanFrame, viterbiCorrected);
+                System.out.println("Errors after Viterbi: " + viterbiErrors);
+                
+                // Calculate actual performance
+                if (encodedErrors > 0) {
+                    double correctionRate = (encodedErrors - viterbiErrors) * 100.0 / encodedErrors;
+                    System.out.println("Viterbi correction: " + String.format("%.1f%%", correctionRate));
                 }
                 
-                // Wait for next orbital position
+                // Validate frame
+                TelemetryFrame viterbiFrame = new TelemetryFrame();
+                System.arraycopy(viterbiCorrected, 0, viterbiFrame.getFrameData(), 0, viterbiCorrected.length);
+                System.out.println("Frame valid after Viterbi: " + viterbiFrame.validateFrame());
+                
+                // Wait for next position
                 if (iteration < 2) {
-                    System.out.println("⏳ Waiting 6 seconds for next orbital position...");
+                    System.out.println("Waiting 6 seconds...");
                     Thread.sleep(6000);
                 }
             }
             
             System.out.println("\n" + "=".repeat(60));
-            System.out.println("=== PIPELINE EXECUTION COMPLETE ===");
-            System.out.println("✓ Single API call per iteration");
-            System.out.println("✓ Realistic error correction performance");
-            System.out.println("✓ Measurable coding gains");
+            System.out.println("PIPELINE TEST COMPLETE");
             
         } catch (Exception e) {
             System.err.println("Pipeline failure: " + e.getMessage());
@@ -93,11 +82,11 @@ public class STRIVEPipeline {
         }
     }
     
-    private static int countBitErrors(byte[] original, byte[] corrupted) {
+    private static int countBitErrors(byte[] a, byte[] b) {
         int errors = 0;
-        int minLength = Math.min(original.length, corrupted.length);
+        int minLength = Math.min(a.length, b.length);
         for (int i = 0; i < minLength; i++) {
-            errors += Integer.bitCount(original[i] ^ corrupted[i]);
+            errors += Integer.bitCount(a[i] ^ b[i]);
         }
         return errors;
     }
