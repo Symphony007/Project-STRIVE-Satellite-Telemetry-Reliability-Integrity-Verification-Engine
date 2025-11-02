@@ -1,4 +1,4 @@
-# 🛰️ NASA-GRADE SATELLITE ERROR CORRECTION SYSTEM
+# SATELLITE ERROR CORRECTION SYSTEM
 
 ## ⚠️ **PROJECT STATUS: IN ACTIVE DEVELOPMENT**
 **This project is currently under development. The error correction algorithms are being tested and optimized. Complete installation and run instructions will be provided once the system is fully operational.**
